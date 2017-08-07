@@ -830,7 +830,7 @@ class InstaBot:
                 now_time = datetime.datetime.now()
                 self.log_full_path = '%s%s_%s.log' % (
                     self.log_file_path, self.user_login,
-                    now_time.strftime("%d.%m.%Y_%H:%M"))
+                    now_time.strftime("%d.%m.%Y_%H_%M"))
                 formatter = logging.Formatter('%(asctime)s - %(name)s '
                                               '- %(message)s')
                 self.logger = logging.getLogger(self.user_login)
