@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import json
 import os
 import sys
 import time
@@ -12,9 +13,19 @@ from follow_protocol import follow_protocol
 from instabot import InstaBot
 from unfollow_protocol import unfollow_protocol
 
+
+def load_user_and_password(filepath):
+    if os.path.exists(filepath):
+        with open(filepath) as data_file:
+            ms = json.load(data_file)
+    return (ms["username"], ms["password"])
+
+
+username, password = load_user_and_password("user_login_example.json")
+
 bot = InstaBot(
-    login="username",
-    password="password",
+    login=username,
+    password=password,
     like_per_day=1000,
     comments_per_day=0,
     tag_list=['follow4follow', 'f4f', 'cute'],
@@ -53,6 +64,9 @@ bot = InstaBot(
         'follow', 'follower', 'gain', '.id', '_id', 'bags'
     ],
     unfollow_whitelist=['example_user_1', 'example_user_2'])
+bot.login()
+bot.load_session()
+bot.save_session()
 while True:
 
     #print("# MODE 0 = ORIGINAL MODE BY LEVPASHA")

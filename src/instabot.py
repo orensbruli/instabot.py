@@ -6,9 +6,12 @@ import datetime
 import itertools
 import json
 import logging
+import os
+import pickle
 import random
 import signal
 import sys
+import traceback
 
 if 'threading' in sys.modules:
     del sys.modules['threading']
@@ -17,6 +20,7 @@ import requests
 from unfollow_protocol import unfollow_protocol
 from userinfo import UserInfo
 
+logger = logging.getLogger(__name__)
 
 class InstaBot:
     """
@@ -53,7 +57,7 @@ class InstaBot:
 
     user_agent = ("Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/48.0.2564.103 Safari/537.36")
-    accept_language = 'ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4'
+    accept_language = 'es-ES,es;q=0.8,en-US;q=0.6,en;q=0.4'
 
     # If instagram ban you - query return 400 error.
     error_400 = 0
@@ -137,6 +141,12 @@ class InstaBot:
                  unwanted_username_list=[],
                  unfollow_whitelist=[]):
 
+        self.csrftoken = None
+        self.session = None
+        self.cookies = None
+        self._logger = logging.getLogger('instabot')
+        self._logger.setLevel(logging.DEBUG)
+        self._logger.debug("Creating InstaBot class")
         self.bot_start = datetime.datetime.now()
         self.unfollow_break_min = unfollow_break_min
         self.unfollow_break_max = unfollow_break_max
@@ -178,7 +188,7 @@ class InstaBot:
         self.max_like_for_one_tag = max_like_for_one_tag
         # log_mod 0 to console, 1 to file
         self.log_mod = log_mod
-        self.s = requests.Session()
+        self.session = requests.Session()
         # if you need proxy make something like this:
         # self.s.proxies = {"https" : "http://proxyip:proxyport"}
         # by @ageorgios
@@ -187,7 +197,7 @@ class InstaBot:
                 'http': 'http://' + proxy,
                 'https': 'http://' + proxy,
             }
-            self.s.proxies.update(proxies)
+            self.session.proxies.update(proxies)
         # convert login to lower
         self.user_login = login.lower()
         self.user_password = password
@@ -200,15 +210,120 @@ class InstaBot:
         log_string = 'Instabot v1.1.0 started at %s:\n' % \
                      (now_time.strftime("%d.%m.%Y %H:%M"))
         self.write_log(log_string)
-        self.login()
+
         self.populate_user_blacklist()
         signal.signal(signal.SIGTERM, self.cleanup)
         atexit.register(self.cleanup)
 
+    def login(self):
+        if self.csrftoken and self.login_status and self.user_id:
+            if self.check_login():
+                self._logger.info("Valid login already exists for %s" % self.user_login)
+                return
+
+        log_string = 'Trying to login as %s...\n' % (self.user_login)
+        self._logger.info(log_string)
+        self.session.cookies.update({
+            'sessionid': '',
+            'mid': '',
+            'ig_pr': '1',
+            'ig_vw': '1920',
+            'csrftoken': '',
+            's_network': '',
+            'ds_user_id': ''
+        })
+        self.login_post = {
+            'username': self.user_login,
+            'password': self.user_password
+        }
+        self.session.headers.update({
+            'Accept-Encoding': 'gzip, deflate',
+            'Accept-Language': self.accept_language,
+            'Connection': 'keep-alive',
+            'Content-Length': '0',
+            'Host': 'www.instagram.com',
+            'Origin': 'https://www.instagram.com',
+            'Referer': 'https://www.instagram.com/',
+            'User-Agent': self.user_agent,
+            'X-Instagram-AJAX': '1',
+            'X-Requested-With': 'XMLHttpRequest'
+        })
+        r = self.session.get(self.url)
+        self.session.headers.update({'X-CSRFToken': r.cookies['csrftoken']})
+        time.sleep(5 * random.random())
+        login = self.session.post(
+            self.url_login, data=self.login_post, allow_redirects=True)
+        self.session.headers.update({'X-CSRFToken': login.cookies['csrftoken']})
+        self.csrftoken = login.cookies['csrftoken']
+        time.sleep(5 * random.random())
+
+        if login.status_code == 200:
+            r = self.session.get('https://www.instagram.com/')
+            finder = r.text.find(self.user_login)
+            if finder != -1:
+                ui = UserInfo()
+                self.user_id = ui.get_user_id_by_login(self.user_login)
+                self.login_status = True
+                log_string = '%s login success!' % (self.user_login)
+                self._logger.info(log_string)
+            else:
+                self.login_status = False
+                self._logger.info('Login error! Check your login data!')
+        else:
+            self._logger.info('Login error! Connection error!')
+
+    def save_session(self):
+        with open('last_session.json', 'w') as outfile:
+            # class attributes to dict
+            ms = {}
+            for a in dir(self):
+                if not a.startswith('__') and not callable(getattr(self, a)):
+                    try:
+                        json.dumps(getattr(self, a))
+                        ms[a] = getattr(self, a)
+                    except:
+                        print "Not serializable attribute %s" % a
+            json.dump(ms, outfile, sort_keys=True, indent=4)
+        if self.session:
+            with open('coockies.file', 'w') as f:
+                pickle.dump(requests.utils.dict_from_cookiejar(self.session.cookies), f)
+
+    def load_session(self, filename=None):
+        if filename is None:
+            filename = 'last_session.json'
+        if os.path.exists(filename):
+            with open(filename) as data_file:
+                ms = json.load(data_file)
+                for key, value in ms.items():
+                    try:
+                        attr = getattr(self, key)
+                        if not callable(attr):
+                            setattr(self, key, value)
+                    except AttributeError as e:
+                        print "The attribute " + str(key) + " doen't exist"
+                    except:
+                        print traceback.format_exc()
+
+        try:
+            with open('coockies.file') as f:
+                cookies = requests.utils.cookiejar_from_dict(pickle.load(f))
+                self.session.cookies = cookies
+        except:
+            self._logger.error("No 'coockies.file' exist")
+            print traceback.format_exc()
+
+    def check_login(self):
+        r = self.session.get('https://www.instagram.com/')
+        finder = r.text.find(self.user_login)
+        if finder != -1:
+            return True
+        else:
+            return False
+
     def populate_user_blacklist(self):
         for user in self.user_blacklist:
             user_id_url = self.url_user_detail % (user)
-            info = self.s.get(user_id_url)
+            info = self.session.get(user_id_url)
 
             # prevent error if 'Account of user was deleted or link is invalid
             from json import JSONDecodeError
@@ -228,9 +343,14 @@ class InstaBot:
                 time.sleep(5 * random.random())
 
     def login(self):
+        if self.csrftoken and self.login_status and self.user_id:
+            if self.check_login():
+                self._logger.info("Valid login already exists for %s" % self.user_login)
+                return
+
         log_string = 'Trying to login as %s...\n' % (self.user_login)
-        self.write_log(log_string)
-        self.s.cookies.update({
+        self._logger.info(log_string)
+        self.session.cookies.update({
             'sessionid': '',
             'mid': '',
             'ig_pr': '1',
@@ -243,7 +363,7 @@ class InstaBot:
             'username': self.user_login,
             'password': self.user_password
         }
-        self.s.headers.update({
+        self.session.headers.update({
             'Accept-Encoding': 'gzip, deflate',
             'Accept-Language': self.accept_language,
             'Connection': 'keep-alive',
@@ -255,29 +375,77 @@ class InstaBot:
             'X-Instagram-AJAX': '1',
             'X-Requested-With': 'XMLHttpRequest'
         })
-        r = self.s.get(self.url)
-        self.s.headers.update({'X-CSRFToken': r.cookies['csrftoken']})
+        r = self.session.get(self.url)
+        self.session.headers.update({'X-CSRFToken': r.cookies['csrftoken']})
         time.sleep(5 * random.random())
-        login = self.s.post(
+        login = self.session.post(
             self.url_login, data=self.login_post, allow_redirects=True)
-        self.s.headers.update({'X-CSRFToken': login.cookies['csrftoken']})
+        self.session.headers.update({'X-CSRFToken': login.cookies['csrftoken']})
         self.csrftoken = login.cookies['csrftoken']
         time.sleep(5 * random.random())
 
         if login.status_code == 200:
-            r = self.s.get('https://www.instagram.com/')
+            r = self.session.get('https://www.instagram.com/')
             finder = r.text.find(self.user_login)
             if finder != -1:
                 ui = UserInfo()
                 self.user_id = ui.get_user_id_by_login(self.user_login)
                 self.login_status = True
                 log_string = '%s login success!' % (self.user_login)
-                self.write_log(log_string)
+                self._logger.info(log_string)
             else:
                 self.login_status = False
-                self.write_log('Login error! Check your login data!')
+                self._logger.info('Login error! Check your login data!')
         else:
-            self.write_log('Login error! Connection error!')
+            self._logger.info('Login error! Connection error!')
+
+    def save_session(self):
+        with open('last_session.json', 'w') as outfile:
+            # class attributes to dict
+            ms = {}
+            for a in dir(self):
+                if not a.startswith('__') and not callable(getattr(self, a)):
+                    try:
+                        json.dumps(getattr(self, a))
+                        ms[a] = getattr(self, a)
+                    except:
+                        print "Not serializable attribute %s" % a
+            json.dump(ms, outfile, sort_keys=True, indent=4)
+        if self.session:
+            with open('coockies.file', 'w') as f:
+                pickle.dump(requests.utils.dict_from_cookiejar(self.session.cookies), f)
+
+    def load_session(self, filename=None):
+        if filename is None:
+            filename = 'last_session.json'
+        if os.path.exists(filename):
+            with open(filename) as data_file:
+                ms = json.load(data_file)
+                for key, value in ms.items():
+                    try:
+                        attr = getattr(self, key)
+                        if not callable(attr):
+                            setattr(self, key, value)
+                    except AttributeError as e:
+                        print "The attribute " + str(key) + " doen't exist"
+                    except:
+                        print traceback.format_exc()
+
+        try:
+            with open('coockies.file') as f:
+                cookies = requests.utils.cookiejar_from_dict(pickle.load(f))
+                self.session.cookies = cookies
+        except:
+            self._logger.error("No 'coockies.file' exist")
+            print traceback.format_exc()
+
+    def check_login(self):
+        r = self.session.get('https://www.instagram.com/')
+        finder = r.text.find(self.user_login)
+        if finder != -1:
+            return True
+        else:
+            return False
 
     def logout(self):
         now_time = datetime.datetime.now()
@@ -291,7 +459,7 @@ class InstaBot:
 
         try:
             logout_post = {'csrfmiddlewaretoken': self.csrftoken}
-            logout = self.s.post(self.url_logout, data=logout_post)
+            logout = self.session.post(self.url_logout, data=logout_post)
             self.write_log("Logout success!")
             self.login_status = False
         except:
@@ -326,7 +494,7 @@ class InstaBot:
             if self.login_status == 1:
                 url_tag = self.url_tag % (tag)
                 try:
-                    r = self.s.get(url_tag)
+                    r = self.session.get(url_tag)
                     all_data = json.loads(r.text)
 
                     self.media_by_tag = list(all_data['tag']['media']['nodes'])
@@ -455,7 +623,7 @@ class InstaBot:
         if self.login_status:
             url_likes = self.url_likes % (media_id)
             try:
-                like = self.s.post(url_likes)
+                like = self.session.post(url_likes)
                 last_liked_media_id = media_id
             except:
                 self.write_log("Except on like!")
@@ -467,7 +635,7 @@ class InstaBot:
         if self.login_status:
             url_unlike = self.url_unlike % (media_id)
             try:
-                unlike = self.s.post(url_unlike)
+                unlike = self.session.post(url_unlike)
             except:
                 self.write_log("Except on unlike!")
                 unlike = 0
@@ -479,7 +647,7 @@ class InstaBot:
             comment_post = {'comment_text': comment_text}
             url_comment = self.url_comment % (media_id)
             try:
-                comment = self.s.post(url_comment, data=comment_post)
+                comment = self.session.post(url_comment, data=comment_post)
                 if comment.status_code == 200:
                     self.comments_counter += 1
                     log_string = 'Write: "%s". #%i.' % (comment_text,
@@ -495,7 +663,7 @@ class InstaBot:
         if self.login_status:
             url_follow = self.url_follow % (user_id)
             try:
-                follow = self.s.post(url_follow)
+                follow = self.session.post(url_follow)
                 if follow.status_code == 200:
                     self.follow_counter += 1
                     log_string = "Followed: %s #%i." % (user_id,
@@ -511,7 +679,7 @@ class InstaBot:
         if self.login_status:
             url_unfollow = self.url_unfollow % (user_id)
             try:
-                unfollow = self.s.post(url_unfollow)
+                unfollow = self.session.post(url_unfollow)
                 if unfollow.status_code == 200:
                     self.unfollow_counter += 1
                     log_string = "Unfollow: %s #%i." % (user_id,
@@ -527,7 +695,7 @@ class InstaBot:
         if self.login_status:
             url_unfollow = self.url_unfollow % (user_id)
             try:
-                unfollow = self.s.post(url_unfollow)
+                unfollow = self.session.post(url_unfollow)
                 if unfollow.status_code == 200:
                     self.unfollow_counter += 1
                     log_string = "Unfollow: %s #%i of %i." % (
@@ -537,7 +705,7 @@ class InstaBot:
                     log_string = "Slow Down - Pausing for 5 minutes so we don't get banned!"
                     self.write_log(log_string)
                     time.sleep(300)
-                    unfollow = self.s.post(url_unfollow)
+                    unfollow = self.session.post(url_unfollow)
                     if unfollow.status_code == 200:
                         self.unfollow_counter += 1
                         log_string = "Unfollow: %s #%i of %i." % (
@@ -657,7 +825,7 @@ class InstaBot:
 
     def check_exisiting_comment(self, media_code):
         url_check = self.url_media_detail % (media_code)
-        check_comment = self.s.get(url_check)
+        check_comment = self.session.get(url_check)
         all_data = json.loads(check_comment.text)
         if all_data['graphql']['shortcode_media']['owner']['id'] == self.user_id:
                 self.write_log("Keep calm - It's your own media ;)")
@@ -711,7 +879,7 @@ class InstaBot:
             if self.login_status == 1:
                 url_tag = self.url_user_detail % (current_user)
                 try:
-                    r = self.s.get(url_tag)
+                    r = self.session.get(url_tag)
                     all_data = json.loads(r.text)
 
                     self.user_info = all_data['user']
@@ -797,7 +965,7 @@ class InstaBot:
             if self.login_status == 1:
                 url_tag = 'https://www.instagram.com/?__a=1'
                 try:
-                    r = self.s.get(url_tag)
+                    r = self.session.get(url_tag)
                     all_data = json.loads(r.text)
 
                     self.media_on_feed = list(

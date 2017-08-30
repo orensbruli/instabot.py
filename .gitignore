@@ -97,3 +97,6 @@ ENV/
 # IDEs
 .idea/
 *.iml
+/last_session.json
+/coockies.file
+/user_login.json
