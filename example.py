@@ -20,11 +20,15 @@ def load_user_and_password(filepath):
             ms = json.load(data_file)
         return (ms["username"], ms["password"])
     else:
-        raise Exception("Login file % not found or invalid format.")
+        return (None, None)
 
 
 # The username and password are readed from the the file specified in this function call
 username, password = load_user_and_password("user_login_example.json")
+while username is None or username == '' or username.strip() == '':
+    username = raw_input("Instagram account username:")
+while password is None or password == '' or password.strip() == '':
+    password = raw_input("Instagram account password:")
 
 bot = InstaBot(
     login=username,
