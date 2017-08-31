@@ -18,9 +18,12 @@ def load_user_and_password(filepath):
     if os.path.exists(filepath):
         with open(filepath) as data_file:
             ms = json.load(data_file)
-    return (ms["username"], ms["password"])
+        return (ms["username"], ms["password"])
+    else:
+        raise Exception("Login file % not found or invalid format.")
 
 
+# The username and password are readed from the the file specified in this function call
 username, password = load_user_and_password("user_login_example.json")
 
 bot = InstaBot(
@@ -63,10 +66,12 @@ bot = InstaBot(
         'beauty', 'express', 'kredit', 'collection', 'impor', 'preloved',
         'follow', 'follower', 'gain', '.id', '_id', 'bags'
     ],
+    location_list=[('274178069', 'calabria'), ('213100244', 'barcelona-spain')],
     unfollow_whitelist=['example_user_1', 'example_user_2'])
 bot.login()
 bot.load_session()
 bot.save_session()
+bot.new_auto_follow_by_location()
 while True:
 
     #print("# MODE 0 = ORIGINAL MODE BY LEVPASHA")

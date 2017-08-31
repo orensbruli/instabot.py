@@ -55,6 +55,8 @@ class InstaBot:
     url_media_detail = 'https://www.instagram.com/p/%s/?__a=1'
     url_user_detail = 'https://www.instagram.com/%s/?__a=1'
 
+    url_location_feed = 'https://www.instagram.com/explore/locations/%s/%s/?__a=1'
+
     user_agent = ("Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/48.0.2564.103 Safari/537.36")
     accept_language = 'es-ES,es;q=0.8,en-US;q=0.6,en;q=0.4'
@@ -131,7 +133,9 @@ class InstaBot:
                                                          "!!", "!!!"]],
                  comments_per_day=0,
                  tag_list=['cat', 'car', 'dog'],
+                 location_list=[],
                  max_like_for_one_tag=5,
+                 max_like_for_one_location=10,
                  unfollow_break_min=15,
                  unfollow_break_max=30,
                  log_mod=0,
@@ -184,8 +188,10 @@ class InstaBot:
         # Auto mod seting:
         # Default list of tag.
         self.tag_list = tag_list
+        self.location_list = location_list
         # Get random tag, from tag_list, and like (1 to n) times.
         self.max_like_for_one_tag = max_like_for_one_tag
+        self.max_like_for_one_location = max_like_for_one_location
         # log_mod 0 to console, 1 to file
         self.log_mod = log_mod
         self.session = requests.Session()
@@ -203,6 +209,7 @@ class InstaBot:
         self.user_password = password
         self.bot_mode = 0
         self.media_by_tag = []
+        self.media_by_location = []
         self.media_on_feed = []
         self.media_by_user = []
         self.unwanted_username_list = unwanted_username_list
@@ -504,6 +511,38 @@ class InstaBot:
             else:
                 return 0
 
+    def get_media_id_by_location(self, location_id, location_name):
+        if self.login_status:
+            log_string = "Get media id by location: %s" % (location_name)
+            self.write_log(log_string)
+            url_location_feed = self.url_location_feed % (location_id, location_name)
+            try:
+                r = self.session.get(url_location_feed)
+                all_data = json.loads(r.text)
+                self.media_by_location = list(all_data['location']['media']['nodes'])
+                return list(all_data['location']['media']['nodes'])
+            except:
+                self.media_by_location = []
+                self._logger.error("Exception while getting media by location")
+                self._logger.error(traceback.format_exc())
+                return None
+        else:
+            self._logger.error("No valid login yet. Please call login method before using this method")
+            return None
+
+    def get_users_id_by_location(self, location_id, location_name):
+        users_ids = []
+        if self.login_status:
+            log_string = "Get users id by location: %s" % (location_name)
+            self.write_log(log_string)
+            media_nodes = self.get_media_id_by_location(location_id=location_id, location_name=location_name)
+            if media_nodes:
+                users_ids = [image['owner']['id'] for image in media_nodes if image['owner'] and image['owner']['id']]
+                return users_ids
+        else:
+            self._logger.error("No valid login yet. Please call login method before using this method")
+            return users_ids
+
     def like_all_exist_media(self, media_size=-1, delay=True):
         """ Like all media ID that have self.media_by_tag """
 
@@ -752,6 +791,17 @@ class InstaBot:
             time.sleep(3)
             # print("Tic!")
 
+    def new_auto_follow_by_location(self):
+        while True:
+            # ------------------- Get media_id -------------------
+            if len(self.media_by_location) == 0:
+                loc_id, loc_name = random.choice(self.location_list)
+                self.get_media_id_by_location(location_id=loc_id, location_name=loc_name)
+            # ------------------- Follow -------------------
+            self.new_auto_mod_follow_by_location()
+            time.sleep(3)
+            # print("Tic!")
+
     def new_auto_mod_like(self):
         if time.time() > self.next_iteration["Like"] and self.like_per_day != 0 \
                 and len(self.media_by_tag) > 0:
@@ -780,6 +830,22 @@ class InstaBot:
             if self.follow(self.media_by_tag[0]["owner"]["id"]) != False:
                 self.bot_follow_list.append(
                     [self.media_by_tag[0]["owner"]["id"], time.time()])
+                self.next_iteration["Follow"] = time.time() + \
+                                                self.add_time(self.follow_delay)
+
+    def new_auto_mod_follow_by_location(self):
+        if time.time() > self.next_iteration["Follow"] and \
+                        self.follow_per_day != 0 and len(self.media_by_location) > 0:
+            if self.media_by_location[0]["owner"]["id"] == self.user_id:
+                self.write_log("Keep calm - It's your own profile ;)")
+                return
+            log_string = "Trying to follow: %s" % (
+                self.media_by_location[0]["owner"]["id"])
+            self.write_log(log_string)
+
+            if self.follow(self.media_by_location[0]["owner"]["id"]) != False:
+                self.bot_follow_list.append(
+                    [self.media_by_location[0]["owner"]["id"], time.time()])
                 self.next_iteration["Follow"] = time.time() + \
                                                 self.add_time(self.follow_delay)
 
