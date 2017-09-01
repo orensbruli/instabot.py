@@ -20,15 +20,16 @@ def load_user_and_password(filepath):
             ms = json.load(data_file)
         return (ms["username"], ms["password"])
     else:
+        print "Failed to load the username and password from %s", (filepath)
         return (None, None)
 
 
 # The username and password are readed from the the file specified in this function call
-username, password = load_user_and_password("user_login_example.json")
+username, password = load_user_and_password("user_login.json")
 while username is None or username == '' or username.strip() == '':
-    username = raw_input("Instagram account username:")
+    username = raw_input("Instagram account username: ")
 while password is None or password == '' or password.strip() == '':
-    password = raw_input("Instagram account password:")
+    password = raw_input("Instagram account password: ")
 
 bot = InstaBot(
     login=username,
@@ -72,8 +73,8 @@ bot = InstaBot(
     ],
     location_list=[('274178069', 'calabria'), ('213100244', 'barcelona-spain')],
     unfollow_whitelist=['example_user_1', 'example_user_2'])
-bot.login()
 bot.load_session()
+bot.login()
 bot.save_session()
 bot.new_auto_follow_by_location()
 while True:

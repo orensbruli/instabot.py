@@ -20,7 +20,6 @@ import requests
 from unfollow_protocol import unfollow_protocol
 from userinfo import UserInfo
 
-logger = logging.getLogger(__name__)
 
 class InstaBot:
     """
@@ -99,7 +98,8 @@ class InstaBot:
 
     # Log setting.
     log_file_path = ''
-    log_file = 0
+    log_file_created = False
+    log_terminal_created = False
 
     # Other.
     user_id = 0
@@ -292,32 +292,86 @@ class InstaBot:
                         print "Not serializable attribute %s" % a
             json.dump(ms, outfile, sort_keys=True, indent=4)
         if self.session:
-            with open('coockies.file', 'w') as f:
-                pickle.dump(requests.utils.dict_from_cookiejar(self.session.cookies), f)
+            with open('session.file', 'w') as f:
+                pickle.dump(self.session, f)
+
+
 
     def load_session(self, filename=None):
         if filename is None:
             filename = 'last_session.json'
         if os.path.exists(filename):
-            with open(filename) as data_file:
-                ms = json.load(data_file)
-                for key, value in ms.items():
-                    try:
-                        attr = getattr(self, key)
-                        if not callable(attr):
-                            setattr(self, key, value)
-                    except AttributeError as e:
-                        print "The attribute " + str(key) + " doen't exist"
-                    except:
-                        print traceback.format_exc()
+            try:
+                with open(filename) as data_file:
+                    ms = json.load(data_file)
+                    for key, value in ms.items():
+                        try:
+                            attr = getattr(self, key)
+                            if not callable(attr):
+                                setattr(self, key, value)
+                        except AttributeError as e:
+                            print "The attribute " + str(key) + " doen't exist"
+                        except:
+                            print traceback.format_exc()
+            except:
+                return
+        else:
+            return
 
         try:
-            with open('coockies.file') as f:
-                cookies = requests.utils.cookiejar_from_dict(pickle.load(f))
-                self.session.cookies = cookies
+            with open('session.file') as f:
+                self.session = pickle.load(f)
+
         except:
-            self._logger.error("No 'coockies.file' exist")
+            self._logger.error("No 'session.file' exist")
             print traceback.format_exc()
+
+    # def save_session(self):
+    #     with open('last_session.json', 'w') as outfile:
+    #         # class attributes to dict
+    #         ms = {}
+    #         for a in dir(self):
+    #             if not a.startswith('__') and not callable(getattr(self, a)):
+    #                 try:
+    #                     json.dumps(getattr(self, a))
+    #                     ms[a] = getattr(self, a)
+    #                 except:
+    #                     print "Not serializable attribute %s" % a
+    #         json.dump(ms, outfile, sort_keys=True, indent=4)
+    #     if self.session:
+    #         jar = cookielib.LWPCookieJar(filename="last_session.cookies")
+    #         for c in self.session.cookies:
+    #             jar.set_cookie(c)
+    #         jar.save()
+    #         # with open('coockies.file', 'w') as f:
+    #         #     pickle.dump(requests.utils.dict_from_cookiejar(self.session.cookies), f)
+
+    # def load_session(self, filename=None):
+    #     if filename is None:
+    #         filename = 'last_session.json'
+    #     if os.path.exists(filename):
+    #         try:
+    #             with open(filename) as data_file:
+    #                 ms = json.load(data_file)
+    #                 for key, value in ms.items():
+    #                     try:
+    #                         attr = getattr(self, key)
+    #                         if not callable(attr):
+    #                             setattr(self, key, value)
+    #                     except AttributeError as e:
+    #                         print "The attribute " + str(key) + " doen't exist"
+    #                     except:
+    #                         print traceback.format_exc()
+    #         except:
+    #             return
+    #     else:
+    #         return
+    #
+    #     try:
+    #         self.session.cookies = cookielib.LWPCookieJar(filename="last_session.cookies")
+    #     except:
+    #         self._logger.error("No 'last_session.cookies' exist")
+    #         print traceback.format_exc()
 
     def check_login(self):
         r = self.session.get('https://www.instagram.com/')
@@ -405,54 +459,6 @@ class InstaBot:
                 self._logger.info('Login error! Check your login data!')
         else:
             self._logger.info('Login error! Connection error!')
-
-    def save_session(self):
-        with open('last_session.json', 'w') as outfile:
-            # class attributes to dict
-            ms = {}
-            for a in dir(self):
-                if not a.startswith('__') and not callable(getattr(self, a)):
-                    try:
-                        json.dumps(getattr(self, a))
-                        ms[a] = getattr(self, a)
-                    except:
-                        print "Not serializable attribute %s" % a
-            json.dump(ms, outfile, sort_keys=True, indent=4)
-        if self.session:
-            with open('coockies.file', 'w') as f:
-                pickle.dump(requests.utils.dict_from_cookiejar(self.session.cookies), f)
-
-    def load_session(self, filename=None):
-        if filename is None:
-            filename = 'last_session.json'
-        if os.path.exists(filename):
-            with open(filename) as data_file:
-                ms = json.load(data_file)
-                for key, value in ms.items():
-                    try:
-                        attr = getattr(self, key)
-                        if not callable(attr):
-                            setattr(self, key, value)
-                    except AttributeError as e:
-                        print "The attribute " + str(key) + " doen't exist"
-                    except:
-                        print traceback.format_exc()
-
-        try:
-            with open('coockies.file') as f:
-                cookies = requests.utils.cookiejar_from_dict(pickle.load(f))
-                self.session.cookies = cookies
-        except:
-            self._logger.error("No 'coockies.file' exist")
-            print traceback.format_exc()
-
-    def check_login(self):
-        r = self.session.get('https://www.instagram.com/')
-        finder = r.text.find(self.user_login)
-        if finder != -1:
-            return True
-        else:
-            return False
 
     def logout(self):
         now_time = datetime.datetime.now()
@@ -708,6 +714,9 @@ class InstaBot:
                     log_string = "Followed: %s #%i." % (user_id,
                                                         self.follow_counter)
                     self.write_log(log_string)
+                else:
+                    log_string = "Received status code %s when following" % (follow.status_code)
+                    self.write_log(log_string)
                 return follow
             except:
                 self.write_log("Except on follow!")
@@ -848,6 +857,10 @@ class InstaBot:
                     [self.media_by_location[0]["owner"]["id"], time.time()])
                 self.next_iteration["Follow"] = time.time() + \
                                                 self.add_time(self.follow_delay)
+        else:
+            log_string = "Next follow in %s seconds" % (
+                int(self.next_iteration["Follow"] - time.time()))
+            self.write_log(log_string)
 
     def new_auto_mod_unfollow(self):
         if time.time() > self.next_iteration["Unfollow"] and \
@@ -1051,29 +1064,31 @@ class InstaBot:
 
     def write_log(self, log_text):
         """ Write log by print() or logger """
+        self.logger = logging.getLogger(self.user_login)
+        formatter = logging.Formatter('%(asctime)s - %(name)s '
+                                      '- %(message)s')
+        self.logger.setLevel(level=logging.INFO)
 
         if self.log_mod == 0:
-            try:
-                print(log_text)
-            except UnicodeEncodeError:
-                print("Your text has unicode problem!")
+            if self.log_terminal_created == False:
+                self.log_terminal_created = True
+                terminal_handler = logging.StreamHandler()
+                terminal_handler.setLevel(logging.DEBUG)
+                terminal_handler.setFormatter(formatter)
+                self.logger.addHandler(terminal_handler)
         elif self.log_mod == 1:
             # Create log_file if not exist.
-            if self.log_file == 0:
-                self.log_file = 1
+            if self.log_file_created == False:
+                self.log_file_created = True
                 now_time = datetime.datetime.now()
                 self.log_full_path = '%s%s_%s.log' % (
                     self.log_file_path, self.user_login,
                     now_time.strftime("%d.%m.%Y_%H_%M"))
-                formatter = logging.Formatter('%(asctime)s - %(name)s '
-                                              '- %(message)s')
-                self.logger = logging.getLogger(self.user_login)
-                self.hdrl = logging.FileHandler(self.log_full_path, mode='w')
-                self.hdrl.setFormatter(formatter)
-                self.logger.setLevel(level=logging.INFO)
-                self.logger.addHandler(self.hdrl)
-            # Log to log file.
-            try:
-                self.logger.info(log_text)
-            except UnicodeEncodeError:
-                print("Your text has unicode problem!")
+                self.file_handler = logging.FileHandler(self.log_full_path, mode='w')
+                self.file_handler.setFormatter(formatter)
+                self.file_handler.setLevel(logging.DEBUG)
+                self.logger.addHandler(self.file_handler)
+        try:
+            self.logger.info(log_text)
+        except UnicodeEncodeError:
+            print("Your text has unicode problem!")
